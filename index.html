@@ -40,14 +40,33 @@
 <body class="min-h-screen flex flex-col">
 
     <!-- Firebase SDK Imports -->
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global Firebase variables provided by the environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        // --- FIREBASE CONFIGURATION (ACTION REQUIRED FOR VERCEL DEPLOYMENT) ---
+        
+        // 1. Get your config from the Firebase Console (Project Settings -> General)
+        // 2. Replace the empty object {} below with your actual Firebase config object:
+        const MY_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyAVykKmlb3vlPYr14K9h-PjLWy4eDWVs5I",
+            authDomain: "fruitful-youth-acpd.firebaseapp.com",
+            projectId: "fruitful-youth-acpd",
+            storageBucket: "fruitful-youth-acpd.firebasestorage.app",
+            messagingSenderId: "727597695553",
+            appId: "1:727597695553:web:d11866b01f6116f72d3cc0",
+            measurementId: "G-RCY8Z2CKV5"
+        };
+
+        // 3. You also need a unique ID for the artifact path, e.g., 'carol-prep-2025'
+        const MY_APP_ID = 'carol-prep-dashboard-2025';
+
+        // --- FALLBACK LOGIC (DO NOT MODIFY BELOW THIS LINE) ---
+        // This ensures the app works both in the Canvas environment and on Vercel.
+        const appId = typeof __app_id !== 'undefined' ? __app_id : MY_APP_ID;
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         
         // --- Firebase Initialization ---
@@ -60,12 +79,14 @@
 
         /**
          * Authenticates the user and sets up the user ID.
+         * The function falls back to signInAnonymously if the custom token is not available (like on Vercel).
          */
         async function authenticateUser() {
             try {
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken);
                 } else {
+                    // Fallback to anonymous sign-in for deployed environments
                     await signInAnonymously(auth);
                 }
             } catch (error) {
@@ -79,6 +100,7 @@
                     console.log("User authenticated. UID:", userId);
                     loadSuggestions();
                 } else {
+                    // Fallback UUID for unauthenticated users (shouldn't happen with anonymous sign-in)
                     userId = 'anonymous-' + crypto.randomUUID();
                     document.getElementById('user-id').textContent = userId;
                     console.warn("Signed in anonymously. Using generated ID.");
@@ -98,6 +120,7 @@
                 return;
             }
             
+            // Note: The collection path uses the resolved 'appId'
             const collectionPath = `artifacts/${appId}/public/data/carol_suggestions`;
             
             try {
@@ -226,7 +249,7 @@
     <header class="festive-bg text-white py-6 shadow-md">
         <div class="max-w-6xl mx-auto px-4">
             <h1 class="text-3xl sm:text-4xl font-bold text-center tracking-tight">
-                Fruitful Youth Annual Carol Preparation Dashboard
+                Annual Carol Preparation Dashboard
             </h1>
             <p class="text-center text-sm mt-1 opacity-90">
                 Team Coordination and Idea Submission Hub
@@ -313,7 +336,7 @@
 
     <!-- Footer -->
     <footer class="mt-8 py-4 bg-gray-100 text-center text-sm text-gray-500 border-t border-gray-200">
-        &copy; Carol Prep Team 2025 | Powered by Firebase | Fruitful Youth Ministry
+        &copy; Carol Prep Team 2025 | Powered by Firebase
     </footer>
 
 </body>
