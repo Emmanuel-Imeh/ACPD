@@ -131,7 +131,8 @@
                     await signInAnonymously(auth);
                 }
             } catch (error) {
-                console.error("Firebase Auth Error:", error);
+                console.error("Firebase Auth Error:", error.code, error.message, error);
+                showToast("Auth failed: " + (error.code || 'Unknown Auth Error'), 'error');
             }
 
             onAuthStateChanged(auth, (user) => {
@@ -192,9 +193,8 @@
                 console.log("Suggestion added successfully.");
                 
             } catch (e) {
-                console.error("Error adding document: ", e);
-                // Display error message to user
-                showToast("Error submitting idea. Check console for details.", 'error');
+                console.error("Error adding document:", e.code, e.message, e);
+                showToast("Submission failed: " + (e.code || 'Unknown error'), 'error');
             }
         }
         
@@ -238,7 +238,170 @@
             }, (error) => {
                 console.error("Error fetching suggestions:", error.code, error.message, error);
                 document.getElementById('suggestions-list').innerHTML = '<p class="text-red-500 text-center py-4">Failed to load ideas. Please check connection.</p>';
+                showToast("Read failed: " + (error.code || 'Unknown error'), 'error');
             });
+        }
+
+        /**
+         * Generates the chart visualization.
+         */
+        function generateChart(counts, totalTasks, percentage) {
+            const statusMap = [
+                { status: 'Complete', count: counts.Complete, color: 'bg-green-500', label: 'Complete' },
+                { status: 'In Progress', count: counts['In Progress'], color: 'bg-yellow-500', label: 'In Progress' },
+                { status: 'Pending', count: counts.Pending, color: 'bg-red-500', label: 'Pending' }
+            ];
+
+            const completedTasks = counts.Complete;
+
+            const barChartHTML = statusMap.map(item => {
+                const width = totalTasks > 0 ? Math.round((item.count / totalTasks) * 100) : 0;
+                return `
+                    <div class="flex items-center space-x-3 py-1">
+                        <div class="w-24 text-sm font-medium text-gray-600">${item.label} (${item.count})</div>
+                        <div class="flex-grow h-6 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full ${item.color} transition-all duration-500 ease-out" 
+                                style="width: ${width}%;">
+                            </div>
+                        </div>
+                        <div class="w-10 text-sm font-semibold text-gray-700 text-right">${width}%</div>
+                    </div>
+                `;
+            }).join('');
+
+
+            return `
+                <div class="p-4 mb-4 bg-gray-50 rounded-lg shadow-inner">
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">Overall Completion: <span class="text-3xl font-extrabold text-emerald-600">${percentage}%</span></h3>
+                    <div class="w-full h-4 bg-gray-200 rounded-full mb-4 overflow-hidden">
+                        <div class="h-full bg-emerald-500 transition-all duration-500 ease-out" 
+                             style="width: ${percentage}%;">
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-500 mb-4">Total Tasks: ${totalTasks} | Completed: ${completedTasks}</p>
+                    <div class="space-y-1">
+                        ${barChartHTML}
+                    </div>
+                </div>
+                <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2 border-emerald-200">Detailed Checklist</h3>
+            `;
+        }
+        
+        /**
+         * Listens for real-time updates to tasks and renders the progress.
+         */
+        function loadTasks() {
+            const q = query(collection(db, TASK_COLLECTION_PATH)); 
+            
+            onSnapshot(q, (snapshot) => {
+                const tasksContainer = document.getElementById('tasks-list');
+                const chartContainer = document.getElementById('tasks-chart');
+                tasksContainer.innerHTML = '';
+                
+                let tasks = [];
+                let counts = { 'Pending': 0, 'In Progress': 0, 'Complete': 0 };
+
+                snapshot.forEach((doc) => {
+                    const task = { id: doc.id, ...doc.data() };
+                    tasks.push(task);
+                    if (counts[task.status] !== undefined) {
+                        counts[task.status]++;
+                    }
+                });
+
+                if (tasks.length === 0) {
+                    tasksContainer.innerHTML = '<p class="text-gray-500 italic text-center py-4">No tasks defined yet.</p>';
+                    chartContainer.innerHTML = ''; // Clear chart if no tasks
+                    return;
+                }
+                
+                const totalTasks = tasks.length;
+                const completedTasks = counts.Complete;
+                const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+                // 1. Generate Chart HTML
+                const chartHTML = generateChart(counts, totalTasks, completionPercentage);
+                chartContainer.innerHTML = chartHTML;
+
+
+                // 2. Generate Detailed Task List (with Admin controls)
+                const isAdmin = userId === progressAdminId;
+                
+                tasks.forEach((task) => {
+                    const statusClass = {
+                        "Complete": "bg-green-100 text-green-800 border-green-500",
+                        "In Progress": "bg-yellow-100 text-yellow-800 border-yellow-500",
+                        "Pending": "bg-red-100 text-red-800 border-red-500"
+                    }[task.status] || "bg-gray-100 text-gray-800 border-gray-500";
+
+                    let statusControls = '';
+
+                    if (isAdmin) {
+                        // RENDER INTERACTIVE BUTTONS FOR ADMIN
+                        const statusBtn = (status, label, currentId) => {
+                            const isCurrent = task.status === status;
+                            const baseClasses = "px-2 py-1 text-xs font-medium rounded transition duration-200";
+                            if (isCurrent) {
+                                return `<span class="${baseClasses} bg-gray-300 cursor-default">${label}</span>`;
+                            } else {
+                                return `<button onclick="window.updateTaskStatus('${currentId}', '${status}')" class="${baseClasses} bg-gray-100 hover:bg-gray-200">${label}</button>`;
+                            }
+                        };
+                        
+                        statusControls = `
+                            <div class="mt-2 space-x-1">
+                                ${statusBtn("Pending", "Pending", task.id)}
+                                ${statusBtn("In Progress", "In Progress", task.id)}
+                                ${statusBtn("Complete", "Complete", task.id)}
+                            </div>
+                        `;
+                    } else {
+                         // RENDER STATIC STATUS DISPLAY FOR VIEWERS
+                         statusControls = `<div class="mt-2 text-xs text-gray-500 italic">Read-Only View</div>`;
+                    }
+
+
+                    const item = `
+                        <div class="p-3 rounded-lg border-l-4 ${statusClass} shadow-sm mb-3">
+                            <div class="flex justify-between items-start">
+                                <p class="font-semibold text-sm mb-1">${task.name}</p>
+                                <span class="text-xs font-bold px-2 py-0.5 rounded-full ${task.status === 'Complete' ? 'bg-green-500 text-white' : 'bg-gray-400 text-white'}">${task.status}</span>
+                            </div>
+                            <p class="text-xs text-gray-600 mb-2">Assigned: ${task.assignedTo}</p>
+                            ${statusControls}
+                        </div>
+                    `;
+                    tasksContainer.innerHTML += item;
+                });
+            }, (error) => {
+                console.error("Error fetching tasks:", error.code, error.message, error);
+                document.getElementById('tasks-list').innerHTML = '<p class="text-red-500 text-center py-4">Failed to load progress data.</p>';
+            });
+        }
+        
+        /**
+         * Updates the status of a specific task.
+         */
+        window.updateTaskStatus = async function(taskId, newStatus) {
+            // CRITICAL CHECK: Only allow admin to update
+            if (userId !== progressAdminId) {
+                showToast("Permission denied: Only the Progress Admin can update task status.", 'error');
+                return;
+            }
+
+            if (!userId || userId === 'loading') {
+                showToast("Authentication in progress, please wait.", 'error');
+                return;
+            }
+
+            try {
+                const taskRef = doc(db, TASK_COLLECTION_PATH, taskId);
+                await setDoc(taskRef, { status: newStatus }, { merge: true });
+                showToast(`Task updated to ${newStatus}!`, 'success');
+            } catch (e) {
+                console.error("Error updating task status:", e.code, e.message, e);
+                showToast("Update failed: " + (e.code || 'Unknown error'), 'error');
+            }
         }
 
         // --- Utility Functions ---
@@ -286,7 +449,9 @@
             submitBtn.textContent = 'Submitting...';
 
             saveSuggestion(name, idea).then(() => {
-                // success toast handled in saveSuggestion's try block
+                showToast("Idea submitted successfully! Thank you.", 'success');
+                nameInput.value = ''; // Keep name for quick follow-up submissions
+                ideaInput.value = '';
             }).catch(() => {
                 // Error handled inside saveSuggestion catch block
             }).finally(() => {
