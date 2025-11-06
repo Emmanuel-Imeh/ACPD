@@ -90,7 +90,9 @@
                     await signInAnonymously(auth);
                 }
             } catch (error) {
-                console.error("Firebase Auth Error:", error);
+                console.error("Firebase Auth Error:", error.code, error.message, error);
+                // Show the specific authentication error in the toast
+                showToast("Auth failed: " + (error.code || 'Unknown Auth Error'), 'error');
             }
 
             onAuthStateChanged(auth, (user) => {
@@ -133,9 +135,9 @@
                 console.log("Suggestion added successfully.");
                 
             } catch (e) {
-                console.error("Error adding document: ", e);
-                // Display error message to user
-                showToast("Error submitting idea. Check console for details.", 'error');
+                console.error("Error adding document:", e.code, e.message, e);
+                // Show the specific submission error in the toast
+                showToast("Submission failed: " + (e.code || 'Unknown error'), 'error');
             }
         }
         
@@ -178,8 +180,10 @@
                     suggestionsContainer.innerHTML += item;
                 });
             }, (error) => {
-                console.error("Error fetching suggestions:", error);
+                console.error("Error fetching suggestions:", error.code, error.message, error);
                 document.getElementById('suggestions-list').innerHTML = '<p class="text-red-500 text-center py-4">Failed to load ideas. Please check connection.</p>';
+                // Show the specific read error in the toast
+                showToast("Read failed: " + (error.code || 'Unknown error'), 'error');
             });
         }
 
@@ -192,6 +196,7 @@
             const toast = document.getElementById('toast');
             toast.textContent = message;
             
+            // Ensure classes are properly toggled for visibility
             toast.classList.remove('bg-green-500', 'bg-red-500', 'hidden');
             if (type === 'success') {
                 toast.classList.add('bg-green-500');
@@ -201,7 +206,7 @@
 
             setTimeout(() => {
                 toast.classList.add('hidden');
-            }, 3000);
+            }, 5000); // Give user 5 seconds to read the error code
         }
 
         /**
@@ -227,11 +232,9 @@
             submitBtn.textContent = 'Submitting...';
 
             saveSuggestion(name, idea).then(() => {
-                showToast("Idea submitted successfully! Thank you.", 'success');
-                nameInput.value = ''; // Keep name for quick follow-up submissions
-                ideaInput.value = '';
+                // success toast handled in saveSuggestion's try block
             }).catch(() => {
-                // Error handled inside saveSuggestion
+                // Error handled inside saveSuggestion catch block
             }).finally(() => {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Submit Idea';
