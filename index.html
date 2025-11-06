@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Annual Carol Preparation Dashboard</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for a festive look */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc; /* Light gray background */
+        }
+        .festive-bg {
+            background-color: #38a169; /* Emerald Green */
+            background-image: linear-gradient(135deg, #dd6b20 0%, #38a169 100%); /* Orange-Red to Green Gradient */
+        }
+        .card {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+        }
+        .form-input {
+            border-radius: 0.5rem;
+            border: 1px solid #cbd5e0;
+            padding: 0.75rem;
+            width: 100%;
+            transition: border-color 0.3s;
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: #dd6b20;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // --- Firebase Initialization ---
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        setLogLevel('debug');
+        
+        let userId = 'loading'; // Will be set after auth check
+
+        /**
+         * Authenticates the user and sets up the user ID.
+         */
+        async function authenticateUser() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Firebase Auth Error:", error);
+            }
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    document.getElementById('user-id').textContent = userId;
+                    console.log("User authenticated. UID:", userId);
+                    loadSuggestions();
+                } else {
+                    userId = 'anonymous-' + crypto.randomUUID();
+                    document.getElementById('user-id').textContent = userId;
+                    console.warn("Signed in anonymously. Using generated ID.");
+                    loadSuggestions();
+                }
+            });
+        }
+        
+        /**
+         * Saves a new suggestion to Firestore.
+         * @param {string} name - Submitter's name.
+         * @param {string} idea - The submitted idea/feedback.
+         */
+        async function saveSuggestion(name, idea) {
+            if (!userId || userId === 'loading') {
+                console.error("User not authenticated yet.");
+                return;
+            }
+            
+            const collectionPath = `artifacts/${appId}/public/data/carol_suggestions`;
+            
+            try {
+                await addDoc(collection(db, collectionPath), {
+                    name: name,
+                    idea: idea,
+                    timestamp: Date.now(),
+                    userId: userId 
+                });
+                console.log("Suggestion added successfully.");
+                
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                // Display error message to user
+                showToast("Error submitting idea. Check console for details.", 'error');
+            }
+        }
+        
+        /**
+         * Listens for real-time updates to suggestions and renders them.
+         */
+        function loadSuggestions() {
+            const collectionPath = `artifacts/${appId}/public/data/carol_suggestions`;
+            const q = query(collection(db, collectionPath)); 
+            
+            onSnapshot(q, (snapshot) => {
+                const suggestionsContainer = document.getElementById('suggestions-list');
+                suggestionsContainer.innerHTML = '';
+                
+                let suggestions = [];
+                snapshot.forEach((doc) => {
+                    suggestions.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Sort the suggestions locally by timestamp descending
+                suggestions.sort((a, b) => b.timestamp - a.timestamp);
+
+                if (suggestions.length === 0) {
+                    suggestionsContainer.innerHTML = '<p class="text-gray-500 italic text-center py-4">No ideas submitted yet. Be the first!</p>';
+                    return;
+                }
+
+                suggestions.forEach((data) => {
+                    const date = new Date(data.timestamp).toLocaleString();
+                    const item = `
+                        <div class="bg-white p-4 rounded-lg border-l-4 border-orange-500 shadow-sm mb-3">
+                            <p class="font-semibold text-gray-800">${data.name}</p>
+                            <p class="text-sm text-gray-600 mb-2">${data.idea}</p>
+                            <div class="text-xs text-gray-400">
+                                Submitted on ${date}
+                                ${data.userId === userId ? '<span class="text-emerald-600 font-medium ml-2">(You)</span>' : ''}
+                            </div>
+                        </div>
+                    `;
+                    suggestionsContainer.innerHTML += item;
+                });
+            }, (error) => {
+                console.error("Error fetching suggestions:", error);
+                document.getElementById('suggestions-list').innerHTML = '<p class="text-red-500 text-center py-4">Failed to load ideas. Please check connection.</p>';
+            });
+        }
+
+        // --- Utility Functions ---
+
+        /**
+         * Displays a temporary toast notification.
+         */
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            
+            toast.classList.remove('bg-green-500', 'bg-red-500', 'hidden');
+            if (type === 'success') {
+                toast.classList.add('bg-green-500');
+            } else if (type === 'error') {
+                toast.classList.add('bg-red-500');
+            }
+
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        /**
+         * Handles the form submission logic.
+         */
+        window.handleSubmission = function(event) {
+            event.preventDefault();
+            
+            const nameInput = document.getElementById('name-input');
+            const ideaInput = document.getElementById('idea-input');
+            
+            const name = nameInput.value.trim();
+            const idea = ideaInput.value.trim();
+
+            if (!name || !idea) {
+                showToast("Please fill out both your name and your idea.", 'error');
+                return;
+            }
+
+            // Disable button and show loading state
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting...';
+
+            saveSuggestion(name, idea).then(() => {
+                showToast("Idea submitted successfully! Thank you.", 'success');
+                nameInput.value = ''; // Keep name for quick follow-up submissions
+                ideaInput.value = '';
+            }).catch(() => {
+                // Error handled inside saveSuggestion
+            }).finally(() => {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit Idea';
+            });
+        }
+
+        // Initialize App on load
+        window.onload = authenticateUser;
+    </script>
+
+    <!-- TOAST Notification -->
+    <div id="toast" class="fixed top-5 right-5 z-50 p-4 rounded-lg text-white font-medium shadow-lg hidden"></div>
+
+    <!-- Header Section -->
+    <header class="festive-bg text-white py-6 shadow-md">
+        <div class="max-w-6xl mx-auto px-4">
+            <h1 class="text-3xl sm:text-4xl font-bold text-center tracking-tight">
+                Fruitful Youth Annual Carol Preparation Dashboard
+            </h1>
+            <p class="text-center text-sm mt-1 opacity-90">
+                Team Coordination and Idea Submission Hub
+            </p>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow max-w-6xl mx-auto p-4 sm:p-6 lg:p-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Column 1: Assigned Roles -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-xl card">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2 border-orange-200">
+                    Team Assignments
+                </h2>
+                <div class="space-y-4">
+                    <!-- Role Card: Toby -->
+                    <div class="p-3 bg-emerald-50 rounded-lg border-l-4 border-emerald-500">
+                        <p class="font-semibold text-lg text-emerald-800">Bro. Toby</p>
+                        <p class="text-sm text-gray-600">Anchor/MC - *Program Flow & Hosting*</p>
+                    </div>
+
+                    <!-- Role Card: Blessing -->
+                    <div class="p-3 bg-emerald-50 rounded-lg border-l-4 border-emerald-500">
+                        <p class="font-semibold text-lg text-emerald-800">Sis. Blessing</p>
+                        <p class="text-sm text-gray-600">Guest Artist Invitation - *Booking & Coordination*</p>
+                    </div>
+
+                    <!-- Role Card: Victor -->
+                    <div class="p-3 bg-emerald-50 rounded-lg border-l-4 border-emerald-500">
+                        <p class="font-semibold text-lg text-emerald-800">Bro. Victor</p>
+                        <p class="text-sm text-gray-600">Instrument & Sound System - *Technical Setup*</p>
+                    </div>
+
+                    <!-- Role Card: Esther (Hymns) -->
+                    <div class="p-3 bg-red-50 rounded-lg border-l-4 border-red-500">
+                        <p class="font-semibold text-lg text-red-800">Sis. Esther (Primary)</p>
+                        <p class="text-sm text-gray-600">Hymns for the Day - *Music Selection & Materials*</p>
+                    </div>
+
+                    <!-- Role Card: Decor/Refreshments -->
+                    <div class="p-3 bg-yellow-50 rounded-lg border-l-4 border-yellow-500">
+                        <p class="font-semibold text-lg text-yellow-800">Bro. Matthew & Sis. Esther</p>
+                        <p class="text-sm text-gray-600">Decor & Refreshments - *Aesthetics & Hospitality*</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 text-xs text-gray-400 p-2 border-t pt-3">
+                    Your User ID: <span id="user-id" class="font-mono text-gray-600 break-all">...loading</span>
+                </div>
+            </div>
+
+            <!-- Column 2: Idea Submission Form -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-xl card">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2 border-orange-200">
+                    Submit Your Ideas & Feedback
+                </h2>
+                <form onsubmit="handleSubmission(event)" class="space-y-4">
+                    <div>
+                        <label for="name-input" class="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                        <input type="text" id="name-input" placeholder="e.g., Bro. Victor" required class="form-input">
+                    </div>
+                    <div>
+                        <label for="idea-input" class="block text-sm font-medium text-gray-700 mb-1">Your Idea / Suggestion</label>
+                        <textarea id="idea-input" rows="4" placeholder="Share your idea for the program, decorations, or logistics..." required class="form-input resize-none"></textarea>
+                    </div>
+                    <button id="submit-btn" type="submit" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 rounded-lg shadow-md transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Submit Idea
+                    </button>
+                </form>
+
+                <h3 class="text-xl font-bold text-gray-800 mt-8 mb-4 border-b pb-2 border-emerald-200">
+                    Team Idea Stream
+                </h3>
+                <div id="suggestions-list" class="space-y-3 max-h-96 overflow-y-auto pr-2">
+                    <!-- Suggestions will be loaded here via Firestore onSnapshot -->
+                    <p class="text-gray-500 italic text-center py-4">Loading team suggestions...</p>
+                </div>
+            </div>
+            
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-8 py-4 bg-gray-100 text-center text-sm text-gray-500 border-t border-gray-200">
+        &copy; Carol Prep Team 2025 | Powered by Firebase | Fruitful Youth Ministry
+    </footer>
+
+</body>
+</html>
